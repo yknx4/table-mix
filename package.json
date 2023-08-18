@@ -2,6 +2,7 @@
   "name": "table-mix",
   "version": "0.1.0",
   "private": true,
+  "homepage": "https://tbl.ornelas.io",
   "dependencies": {
     "@ant-design/icons": "^5.2.5",
     "@rehooks/local-storage": "^2.4.4",
@@ -15,6 +16,7 @@
     "@types/react-dom": "^18.0.0",
     "ahooks": "^3.7.8",
     "antd": "^5.8.3",
+    "gh-pages": "^6.0.0",
     "lodash": "^4.17.21",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -23,6 +25,8 @@
     "web-vitals": "^2.1.0"
   },
   "scripts": {
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d build",
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
