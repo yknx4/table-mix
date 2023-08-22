@@ -8,4 +8,4 @@ data.forEach(function (item) {
   res.push({name, image})
 })
 
-console.log(JSON.stringify(res))
+JSON.stringify(res)
