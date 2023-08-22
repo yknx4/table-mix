@@ -5,7 +5,7 @@ import Meta from 'antd/es/card/Meta'
 import { PlusOutlined, MinusOutlined, CloseOutlined, CheckOutlined } from '@ant-design/icons'
 import TextArea from 'antd/es/input/TextArea'
 import { useState } from 'react'
-import { sample } from 'lodash'
+import { sample, sortBy } from 'lodash'
 
 interface Table {
   id: number
@@ -17,6 +17,8 @@ interface Table {
 interface Attendee {
   id: string
   name: string
+  image?: string
+  isKorean: boolean
 }
 
 const data: Table[] = [
@@ -40,8 +42,17 @@ interface AttendeeCardProps {
 }
 function AttendeeCard (props: AttendeeCardProps): JSX.Element {
   const [tables] = useLocalStorage('tables', data)
+  const [attendees, setAttendees] = useLocalStorage<Attendee[]>('attendees', [])
   const [assignations, setAssignations] = useLocalStorage<TableAssignations>('assignations', {})
   const item = props.attendee
+  const toggleLanguage = (attendee: Attendee): void => {
+    const currentAttendees = [...attendees]
+    const currentAttendee = currentAttendees.find((a) => a.id === attendee.id)
+    if (currentAttendee != null) {
+      currentAttendee.isKorean = !currentAttendee.isKorean
+      setAttendees(currentAttendees)
+    }
+  }
   const removeFromTable = (attendee: Attendee): void => {
     const currentAssignations = { ...assignations }
     tables.forEach((table) => {
@@ -54,16 +65,27 @@ function AttendeeCard (props: AttendeeCardProps): JSX.Element {
   }
   const addToRandomTable = (attendee: Attendee): void => {
     const currentAssignations = { ...assignations }
+    let currentTable: Table | undefined
 
     tables.forEach((table) => {
       currentAssignations[table.id] = currentAssignations[table.id] ?? []
       if (currentAssignations[table.id].includes(attendee.id)) {
+        currentTable = table
         currentAssignations[table.id] = currentAssignations[table.id].filter((id) => id !== attendee.id)
       }
     })
 
-    const enabledTables = tables.filter(t => t.enabled).filter(t => currentAssignations[t.id].length < t.seats)
-    const randomTable = sample(enabledTables)
+    const enabledTables = tables.filter(t => t.enabled).filter(t => currentAssignations[t.id].length < t.seats).filter(t => t !== currentTable)
+
+    // tables without korean attendees
+    const tablesWithoutKorean = enabledTables.filter(t => !currentAssignations[t.id].some((id) => attendees.find(a => a.id === id)?.isKorean))
+
+    let randomTable: Table | undefined
+    if (tablesWithoutKorean.length > 0 && attendee.isKorean) {
+      randomTable = sample(tablesWithoutKorean)
+    } else {
+      randomTable = sample(enabledTables)
+    }
     if (randomTable != null) {
       currentAssignations[randomTable.id] = currentAssignations[randomTable.id] ?? []
       currentAssignations[randomTable.id].push(attendee.id)
@@ -75,11 +97,12 @@ function AttendeeCard (props: AttendeeCardProps): JSX.Element {
     <Card
       actions={[
         <PlusOutlined onClick={() => { addToRandomTable(item) }} />,
-        <MinusOutlined onClick={() => { removeFromTable(item) }} />
+        <MinusOutlined onClick={() => { removeFromTable(item) }} />,
+        <Button type='text' onClick={() => { toggleLanguage(item) }}>{item.isKorean ? '🇰🇷' : '🇨🇦'}</Button>
       ]}
     >
       <Meta
-        avatar={<Avatar src={`https://i.pravatar.cc/150?u=${item.name}`} />}
+        avatar={<Avatar src={item.image ?? `https://ui-avatars.com/api/?name=${item.name}`} />}
         title={item.name}
       />
     </Card>
@@ -105,12 +128,26 @@ function App (): JSX.Element {
 
   const unasignedAttendees = attendees.filter((attendee) => { return !Object.values(assignations).flat().includes(attendee.id) })
 
+  interface SnippetResource {
+    name: string
+    image?: string
+  }
+
   const generateAttendees = (): void => {
-    const newAttendees = toAdd?.split('\n').filter(n => n !== '').map<Attendee>((name) => {
-      const id = Math.random().toString(36).slice(2, 7)
-      return { id, name }
-    }) ?? []
-    setAttendees([...attendees, ...newAttendees])
+    try {
+      const newAttendees = JSON.parse(toAdd ?? '') as SnippetResource[]
+      const attendeesToAdd = newAttendees.map<Attendee>((attendee) => {
+        const id = Math.random().toString(36).slice(2, 7)
+        return { id, name: attendee.name, image: attendee.image, isKorean: false }
+      })
+      setAttendees([...attendees, ...attendeesToAdd])
+    } catch (error) {
+      const newAttendees = toAdd?.split('\n').filter(n => n !== '').map<Attendee>((name) => {
+        const id = Math.random().toString(36).slice(2, 7)
+        return { id, name, isKorean: false }
+      }) ?? []
+      setAttendees([...attendees, ...newAttendees])
+    }
   }
   const toggleTable = (id: number): void => {
     const newTables = tables.map((table) => {
@@ -162,7 +199,8 @@ function App (): JSX.Element {
                       <Meta
                         avatar={<Avatar src={`https://i.pravatar.cc/150?img=${item.id}`} />}
                         title={`${item.id} - ${item.name}`}
-                        description={item.enabled ? `Seats: ${item.seats} Left: ${item.seats - thisTableAttendees.length}` : 'Table is disabled'}
+                        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+                        description={item.enabled ? `Seats: ${item.seats} Left: ${item.seats - thisTableAttendees.length} 🇰🇷: ${thisTableAttendees.filter(a => a?.isKorean).length} 🇨🇦: ${thisTableAttendees.filter(a => !(a!.isKorean)).length}` : 'Table is disabled'}
                       />
                     </Card>
                     <Space wrap>
@@ -190,7 +228,7 @@ function App (): JSX.Element {
               header={<div>Name</div>}
               footer={<div>Assigned: {attendees.length - unasignedAttendees.length} | Pending: {unasignedAttendees.length}</div>}
               bordered
-              dataSource={unasignedAttendees}
+              dataSource={sortBy(unasignedAttendees, ['name'])}
               renderItem={(item) => (
                 <List.Item>
                   <AttendeeCard attendee={item} openNotification={openNotification} />
