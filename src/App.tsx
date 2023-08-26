@@ -4,8 +4,8 @@ import useLocalStorage from '@rehooks/local-storage'
 import Meta from 'antd/es/card/Meta'
 import { PlusOutlined, MinusOutlined, CloseOutlined, CheckOutlined } from '@ant-design/icons'
 import TextArea from 'antd/es/input/TextArea'
-import { useState } from 'react'
-import { sample, sortBy } from 'lodash'
+import { useMemo, useState } from 'react'
+import { isEmpty, sample, shuffle, sortBy, sumBy, take } from 'lodash'
 
 interface Table {
   id: number
@@ -36,6 +36,17 @@ const data: Table[] = [
 
 type TableAssignations = Record<Table['id'], Array<Attendee['id']>>
 
+function assignationsReverseIndex (assignations: TableAssignations, tables: Table[]): Record<Attendee['id'], Table> {
+  const result: Record<Attendee['id'], Table> = {}
+  Object.entries(assignations).forEach(([tableId, attendees]) => {
+    attendees.forEach((attendeeId) => {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      result[attendeeId] = tables.find((table) => table.id === Number(tableId))!
+    })
+  })
+  return result
+}
+
 interface AttendeeCardProps {
   attendee: Attendee
   openNotification: (message: string) => void
@@ -44,6 +55,9 @@ function AttendeeCard (props: AttendeeCardProps): JSX.Element {
   const [tables] = useLocalStorage('tables', data)
   const [attendees, setAttendees] = useLocalStorage<Attendee[]>('attendees', [])
   const [assignations, setAssignations] = useLocalStorage<TableAssignations>('assignations', {})
+  const [oldAssignations] = useLocalStorage<TableAssignations>('previous-assignations', {})
+  const currentTable = useMemo(() => assignationsReverseIndex(assignations, tables)[props.attendee.id], [assignations, tables, props.attendee.id])
+  const previousTable = useMemo(() => assignationsReverseIndex(oldAssignations, tables)[props.attendee.id], [oldAssignations, tables, props.attendee.id])
   const item = props.attendee
   const toggleLanguage = (attendee: Attendee): void => {
     const currentAttendees = [...attendees]
@@ -102,9 +116,13 @@ function AttendeeCard (props: AttendeeCardProps): JSX.Element {
       ]}
     >
       <Meta
-        avatar={<Avatar src={item.image ?? `https://ui-avatars.com/api/?name=${item.name}`} />}
+        avatar={<Avatar src={!isEmpty(item.image) ? item.image : `https://ui-avatars.com/api/?name=${item.name}`} size={'large'} />}
         title={item.name}
+        description={<div>
+          Current Table: <b>{currentTable?.id ?? 'None'}</b> <br /> <small>Previous Table: {previousTable?.id ?? 'None'}</small>
+        </div>}
       />
+
     </Card>
   )
 }
@@ -121,12 +139,47 @@ function App (): JSX.Element {
   const [tables, setTables] = useLocalStorage('tables', data)
   const [attendees, setAttendees] = useLocalStorage<Attendee[]>('attendees', [])
   const [assignations, setAssignations] = useLocalStorage<TableAssignations>('assignations', {})
+  const [, setOldAssignations] = useLocalStorage<TableAssignations>('previous-assignations', {})
   const [toAdd, setToAdd] = useState<string>()
   const onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
     setToAdd(e.target.value)
   }
 
   const unasignedAttendees = attendees.filter((attendee) => { return !Object.values(assignations).flat().includes(attendee.id) })
+
+  const generateNewRound = (): void => {
+    setOldAssignations(assignations)
+    const newAssignations: TableAssignations = {}
+    tables.forEach((table) => { newAssignations[table.id] = [] })
+    const koreanAttendees = shuffle(attendees.filter(a => a.isKorean))
+    const nonKoreanAttendees = shuffle(attendees.filter(a => !a.isKorean))
+    const firstKoreanAttendees = take(koreanAttendees, tables.filter(t => t.enabled).length)
+    const restKoreanAttendees = koreanAttendees.filter(a => !firstKoreanAttendees.includes(a))
+    const firstNonKoreanAttendees = take(nonKoreanAttendees, tables.filter(t => t.enabled).length)
+    const restNonKoreanAttendees = nonKoreanAttendees.filter(a => !firstNonKoreanAttendees.includes(a))
+    const allElse = shuffle([...restKoreanAttendees, ...restNonKoreanAttendees])
+    const sortedAttendees = [...firstKoreanAttendees, ...firstNonKoreanAttendees, ...allElse]
+    sortedAttendees.forEach((attendee) => {
+      const availableTables = tables.filter(t => t.enabled).filter(t => newAssignations[t.id].length < t.seats)
+      const tablesWithoutKorean = availableTables.filter(t => !newAssignations[t.id].some((id) => attendees.find(a => a.id === id)?.isKorean))
+      const tablesWithOnlyKoreans = availableTables.filter(t => newAssignations[t.id].every((id) => attendees.find(a => a.id === id)?.isKorean))
+
+      let appropiateTables: Table[] = []
+      if (tablesWithoutKorean.length > 0 && attendee.isKorean) {
+        appropiateTables = tablesWithoutKorean
+      } else if (tablesWithOnlyKoreans.length > 0 && !attendee.isKorean) {
+        appropiateTables = tablesWithOnlyKoreans
+      } else {
+        appropiateTables = availableTables
+      }
+
+      const randomTable = sample(appropiateTables)
+      if (randomTable != null) {
+        newAssignations[randomTable.id].push(attendee.id)
+      }
+    })
+    setAssignations(newAssignations)
+  }
 
   interface SnippetResource {
     name: string
@@ -136,7 +189,7 @@ function App (): JSX.Element {
   const generateAttendees = (): void => {
     try {
       const newAttendees = JSON.parse(toAdd ?? '') as SnippetResource[]
-      const attendeesToAdd = newAttendees.map<Attendee>((attendee) => {
+      const attendeesToAdd = newAttendees.filter(a => !attendees.some(ea => ea.name === a.name)).map<Attendee>((attendee) => {
         const id = Math.random().toString(36).slice(2, 7)
         return { id, name: attendee.name, image: attendee.image, isKorean: false }
       })
@@ -179,8 +232,8 @@ function App (): JSX.Element {
           <Space direction='vertical'>
             <Divider orientation="left">Asignation</Divider>
             <List
-              header={<div>Tables <Button onClick={() => { setAssignations({}) }}>Clear</Button></div>}
-              footer={<div>Total Tables: {data.filter(d => d.enabled).length} | Total People: {attendees.length}</div>}
+              header={<div>Tables <Button disabled={isEmpty(assignations)} onClick={() => { setOldAssignations(assignations); setAssignations({}) }}>Clear</Button><Button onClick={() => { generateNewRound() }}>Shuffle</Button></div>}
+              footer={<div>Total Tables: {tables.filter(d => d.enabled).length} | Total Seats: {sumBy(tables.filter(d => d.enabled), 'seats')} | Total People: {attendees.length}</div>}
               bordered
               dataSource={tables}
               renderItem={(item) => {
@@ -221,14 +274,15 @@ function App (): JSX.Element {
             <TextArea rows={4} placeholder="Separate each name by new line" allowClear onChange={onChange} />
             <Space.Compact block>
               <Button type="primary" onClick={() => { generateAttendees() }}>Add</Button>
-              <Button type="dashed" onClick={() => { setAttendees([]); setAssignations({}) }}>Clear All</Button>
+
             </Space.Compact>
             <Divider orientation="left">Attendees</Divider>
             <List
+              grid={{ gutter: 16, column: 4 }}
               header={<div>Name</div>}
-              footer={<div>Assigned: {attendees.length - unasignedAttendees.length} | Pending: {unasignedAttendees.length}</div>}
+              footer={<div>Assigned: {attendees.length - unasignedAttendees.length} | Pending: {unasignedAttendees.length} | <Button type="dashed" onClick={() => { setAttendees([]); setAssignations({}) }}>Delete All</Button></div>}
               bordered
-              dataSource={sortBy(unasignedAttendees, ['name'])}
+              dataSource={sortBy(attendees, ['name'])}
               renderItem={(item) => (
                 <List.Item>
                   <AttendeeCard attendee={item} openNotification={openNotification} />
