@@ -1,8 +1,8 @@
 import './App.css'
-import { Avatar, Button, Card, Col, Divider, List, Row, Space, notification } from 'antd'
+import { Avatar, Button, Card, Col, Divider, List, Popconfirm, Row, Space, notification } from 'antd'
 import useLocalStorage from '@rehooks/local-storage'
 import Meta from 'antd/es/card/Meta'
-import { PlusOutlined, MinusOutlined, CloseOutlined, CheckOutlined } from '@ant-design/icons'
+import { PlusOutlined, MinusOutlined, CloseOutlined, CheckOutlined, DeleteOutlined } from '@ant-design/icons'
 import TextArea from 'antd/es/input/TextArea'
 import { useMemo, useState } from 'react'
 import { isEmpty, sample, shuffle, sortBy, sumBy, take } from 'lodash'
@@ -77,6 +77,11 @@ function AttendeeCard (props: AttendeeCardProps): JSX.Element {
     })
     setAssignations(currentAssignations)
   }
+  const deleteAttendee = (attendee: Attendee): void => {
+    removeFromTable(attendee)
+    const attendeesWithoutThis = attendees.filter((a) => a.id !== attendee.id)
+    setAttendees(attendeesWithoutThis)
+  }
   const addToRandomTable = (attendee: Attendee): void => {
     const currentAssignations = { ...assignations }
     let currentTable: Table | undefined
@@ -112,7 +117,17 @@ function AttendeeCard (props: AttendeeCardProps): JSX.Element {
       actions={[
         <PlusOutlined onClick={() => { addToRandomTable(item) }} />,
         <MinusOutlined onClick={() => { removeFromTable(item) }} />,
-        <Button type='text' onClick={() => { toggleLanguage(item) }}>{item.isKorean ? '🇰🇷' : '🇨🇦'}</Button>
+        <Button type='text' onClick={() => { toggleLanguage(item) }}>{item.isKorean ? '🇰🇷' : '🇨🇦'}</Button>,
+        <Popconfirm
+
+          title={`Delete ${item.name}`}
+          description={`Are you sure to delete ${item.name}?`}
+          onConfirm={() => { deleteAttendee(item) }}
+          okText="Yes"
+          cancelText="No"
+        >
+          <DeleteOutlined color='red' />
+        </Popconfirm>
       ]}
     >
       <Meta
@@ -148,11 +163,15 @@ function App (): JSX.Element {
   const unasignedAttendees = attendees.filter((attendee) => { return !Object.values(assignations).flat().includes(attendee.id) })
 
   const generateNewRound = (): void => {
+    let activeAttendees = attendees.filter((attendee) => { return Object.values(assignations).flat().includes(attendee.id) })
+    if (activeAttendees.length === 0) {
+      activeAttendees = attendees
+    }
     setOldAssignations(assignations)
     const newAssignations: TableAssignations = {}
     tables.forEach((table) => { newAssignations[table.id] = [] })
-    const koreanAttendees = shuffle(attendees.filter(a => a.isKorean))
-    const nonKoreanAttendees = shuffle(attendees.filter(a => !a.isKorean))
+    const koreanAttendees = shuffle(activeAttendees.filter(a => a.isKorean))
+    const nonKoreanAttendees = shuffle(activeAttendees.filter(a => !a.isKorean))
     const firstKoreanAttendees = take(koreanAttendees, tables.filter(t => t.enabled).length)
     const restKoreanAttendees = koreanAttendees.filter(a => !firstKoreanAttendees.includes(a))
     const firstNonKoreanAttendees = take(nonKoreanAttendees, tables.filter(t => t.enabled).length)
@@ -280,7 +299,19 @@ function App (): JSX.Element {
             <List
               grid={{ gutter: 16, column: 4 }}
               header={<div>Name</div>}
-              footer={<div>Assigned: {attendees.length - unasignedAttendees.length} | Pending: {unasignedAttendees.length} | <Button type="dashed" onClick={() => { setAttendees([]); setAssignations({}) }}>Delete All</Button></div>}
+              footer={
+                <div>
+                  Assigned: {attendees.length - unasignedAttendees.length} | Pending: {unasignedAttendees.length} |
+                  <Popconfirm
+                    title="Delete All"
+                    description="Are you sure to delete all people?"
+                    onConfirm={() => { setAttendees([]); setAssignations({}) }}
+                    okText="Yes"
+                    cancelText="No"
+                  >
+                    <Button type="dashed" danger>Delete All</Button>
+                  </Popconfirm>
+                </div>}
               bordered
               dataSource={sortBy(attendees, ['name'])}
               renderItem={(item) => (
