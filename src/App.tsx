@@ -2,145 +2,13 @@ import './App.css'
 import { Avatar, Button, Card, Col, Divider, List, Popconfirm, Row, Space, notification } from 'antd'
 import useLocalStorage from '@rehooks/local-storage'
 import Meta from 'antd/es/card/Meta'
-import { PlusOutlined, MinusOutlined, CloseOutlined, CheckOutlined, DeleteOutlined } from '@ant-design/icons'
+import { PlusOutlined, MinusOutlined, CloseOutlined, CheckOutlined } from '@ant-design/icons'
 import TextArea from 'antd/es/input/TextArea'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { isEmpty, sample, shuffle, sortBy, sumBy, take } from 'lodash'
-
-interface Table {
-  id: number
-  name: string
-  seats: number
-  enabled: boolean
-}
-
-interface Attendee {
-  id: string
-  name: string
-  image?: string
-  isKorean: boolean
-}
-
-const data: Table[] = [
-  { id: 1, name: '일', enabled: true, seats: 1 },
-  { id: 2, name: '이', enabled: true, seats: 1 },
-  { id: 3, name: '삼', enabled: true, seats: 1 },
-  { id: 4, name: '사', enabled: true, seats: 1 },
-  { id: 5, name: '오', enabled: true, seats: 1 },
-  { id: 6, name: '육', enabled: true, seats: 1 },
-  { id: 7, name: '칠', enabled: true, seats: 1 },
-  { id: 8, name: '팔', enabled: true, seats: 1 },
-  { id: 9, name: '구', enabled: true, seats: 1 },
-  { id: 10, name: '십', enabled: true, seats: 1 }
-]
-
-type TableAssignations = Record<Table['id'], Array<Attendee['id']>>
-
-function assignationsReverseIndex (assignations: TableAssignations, tables: Table[]): Record<Attendee['id'], Table> {
-  const result: Record<Attendee['id'], Table> = {}
-  Object.entries(assignations).forEach(([tableId, attendees]) => {
-    attendees.forEach((attendeeId) => {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      result[attendeeId] = tables.find((table) => table.id === Number(tableId))!
-    })
-  })
-  return result
-}
-
-interface AttendeeCardProps {
-  attendee: Attendee
-  openNotification: (message: string) => void
-}
-function AttendeeCard (props: AttendeeCardProps): JSX.Element {
-  const [tables] = useLocalStorage('tables', data)
-  const [attendees, setAttendees] = useLocalStorage<Attendee[]>('attendees', [])
-  const [assignations, setAssignations] = useLocalStorage<TableAssignations>('assignations', {})
-  const [oldAssignations] = useLocalStorage<TableAssignations>('previous-assignations', {})
-  const currentTable = useMemo(() => assignationsReverseIndex(assignations, tables)[props.attendee.id], [assignations, tables, props.attendee.id])
-  const previousTable = useMemo(() => assignationsReverseIndex(oldAssignations, tables)[props.attendee.id], [oldAssignations, tables, props.attendee.id])
-  const item = props.attendee
-  const toggleLanguage = (attendee: Attendee): void => {
-    const currentAttendees = [...attendees]
-    const currentAttendee = currentAttendees.find((a) => a.id === attendee.id)
-    if (currentAttendee != null) {
-      currentAttendee.isKorean = !currentAttendee.isKorean
-      setAttendees(currentAttendees)
-    }
-  }
-  const removeFromTable = (attendee: Attendee): void => {
-    const currentAssignations = { ...assignations }
-    tables.forEach((table) => {
-      currentAssignations[table.id] = currentAssignations[table.id] ?? []
-      if (currentAssignations[table.id].includes(attendee.id)) {
-        currentAssignations[table.id] = currentAssignations[table.id].filter((id) => id !== attendee.id)
-      }
-    })
-    setAssignations(currentAssignations)
-  }
-  const deleteAttendee = (attendee: Attendee): void => {
-    removeFromTable(attendee)
-    const attendeesWithoutThis = attendees.filter((a) => a.id !== attendee.id)
-    setAttendees(attendeesWithoutThis)
-  }
-  const addToRandomTable = (attendee: Attendee): void => {
-    const currentAssignations = { ...assignations }
-    let currentTable: Table | undefined
-
-    tables.forEach((table) => {
-      currentAssignations[table.id] = currentAssignations[table.id] ?? []
-      if (currentAssignations[table.id].includes(attendee.id)) {
-        currentTable = table
-        currentAssignations[table.id] = currentAssignations[table.id].filter((id) => id !== attendee.id)
-      }
-    })
-
-    const enabledTables = tables.filter(t => t.enabled).filter(t => currentAssignations[t.id].length < t.seats).filter(t => t !== currentTable)
-
-    // tables without korean attendees
-    const tablesWithoutKorean = enabledTables.filter(t => !currentAssignations[t.id].some((id) => attendees.find(a => a.id === id)?.isKorean))
-
-    let randomTable: Table | undefined
-    if (tablesWithoutKorean.length > 0 && attendee.isKorean) {
-      randomTable = sample(tablesWithoutKorean)
-    } else {
-      randomTable = sample(enabledTables)
-    }
-    if (randomTable != null) {
-      currentAssignations[randomTable.id] = currentAssignations[randomTable.id] ?? []
-      currentAssignations[randomTable.id].push(attendee.id)
-      props.openNotification(`${attendee.name} was added to table ${randomTable.id}/${randomTable.name}`)
-    }
-    setAssignations(currentAssignations)
-  }
-  return (
-    <Card
-      actions={[
-        <PlusOutlined onClick={() => { addToRandomTable(item) }} />,
-        <MinusOutlined onClick={() => { removeFromTable(item) }} />,
-        <Button type='text' onClick={() => { toggleLanguage(item) }}>{item.isKorean ? '🇰🇷' : '🇨🇦'}</Button>,
-        <Popconfirm
-
-          title={`Delete ${item.name}`}
-          description={`Are you sure to delete ${item.name}?`}
-          onConfirm={() => { deleteAttendee(item) }}
-          okText="Yes"
-          cancelText="No"
-        >
-          <DeleteOutlined color='red' />
-        </Popconfirm>
-      ]}
-    >
-      <Meta
-        avatar={<Avatar src={!isEmpty(item.image) ? item.image : `https://ui-avatars.com/api/?name=${item.name}`} size={'large'} />}
-        title={item.name}
-        description={<div>
-          Current Table: <b>{currentTable?.id ?? 'None'}</b> <br /> <small>Previous Table: {previousTable?.id ?? 'None'}</small>
-        </div>}
-      />
-
-    </Card>
-  )
-}
+import { AttendeeCard } from './AttendeeCard'
+import { type Attendee, type Table, type TableAssignations } from './types'
+import { defaultTables } from './helpers'
 
 function App (): JSX.Element {
   const [api, contextHolder] = notification.useNotification()
@@ -151,10 +19,10 @@ function App (): JSX.Element {
       placement: 'top'
     })
   }
-  const [tables, setTables] = useLocalStorage('tables', data)
+  const [tables, setTables] = useLocalStorage('tables', defaultTables)
   const [attendees, setAttendees] = useLocalStorage<Attendee[]>('attendees', [])
   const [assignations, setAssignations] = useLocalStorage<TableAssignations>('assignations', {})
-  const [, setOldAssignations] = useLocalStorage<TableAssignations>('previous-assignations', {})
+  const [newAssignations, setNewAssignations] = useLocalStorage<TableAssignations>('next-assignations', {})
   const [toAdd, setToAdd] = useState<string>()
   const onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
     setToAdd(e.target.value)
@@ -167,7 +35,6 @@ function App (): JSX.Element {
     if (activeAttendees.length === 0) {
       activeAttendees = attendees
     }
-    setOldAssignations(assignations)
     const newAssignations: TableAssignations = {}
     tables.forEach((table) => { newAssignations[table.id] = [] })
     const koreanAttendees = shuffle(activeAttendees.filter(a => a.isKorean))
@@ -197,7 +64,7 @@ function App (): JSX.Element {
         newAssignations[randomTable.id].push(attendee.id)
       }
     })
-    setAssignations(newAssignations)
+    setNewAssignations(newAssignations)
   }
 
   interface SnippetResource {
@@ -251,7 +118,7 @@ function App (): JSX.Element {
           <Space direction='vertical'>
             <Divider orientation="left">Asignation</Divider>
             <List
-              header={<div>Tables <Button disabled={isEmpty(assignations)} onClick={() => { setOldAssignations(assignations); setAssignations({}) }}>Clear</Button><Button onClick={() => { generateNewRound() }}>Shuffle</Button></div>}
+              header={<div>Tables <Button disabled={isEmpty(assignations)} onClick={() => { setNewAssignations(assignations); setAssignations({}) }}>Clear</Button><Button onClick={() => { generateNewRound() }}>Shuffle</Button><Button onClick={() => { setAssignations(newAssignations); generateNewRound() }}>Start New Round</Button></div>}
               footer={<div>Total Tables: {tables.filter(d => d.enabled).length} | Total Seats: {sumBy(tables.filter(d => d.enabled), 'seats')} | Total People: {attendees.length}</div>}
               bordered
               dataSource={tables}
