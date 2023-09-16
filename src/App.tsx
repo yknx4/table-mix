@@ -118,7 +118,7 @@ function App (): JSX.Element {
           <Space direction='vertical'>
             <Divider orientation="left">Asignation</Divider>
             <List
-              header={<div>Tables <Button disabled={isEmpty(assignations)} onClick={() => { setNewAssignations(assignations); setAssignations({}) }}>Clear</Button><Button onClick={() => { generateNewRound() }}>Shuffle</Button><Button onClick={() => { setAssignations(newAssignations); generateNewRound() }}>Start New Round</Button></div>}
+              header={<div>Tables <Button disabled={isEmpty(assignations)} onClick={() => { setNewAssignations(assignations); setAssignations({}) }}>Clear</Button><Button onClick={() => { generateNewRound() }}>Shuffle</Button><Button disabled={isEmpty(newAssignations)} onClick={() => { setAssignations(newAssignations); generateNewRound() }}>Start New Round</Button></div>}
               footer={<div>Total Tables: {tables.filter(d => d.enabled).length} | Total Seats: {sumBy(tables.filter(d => d.enabled), 'seats')} | Total People: {attendees.length}</div>}
               bordered
               dataSource={tables}
